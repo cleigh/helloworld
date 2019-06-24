@@ -1,0 +1,71 @@
+pipeline {
+    agent {
+        label 'Centos01'
+    }
+    environment {
+        TEST = "none"
+    }
+    stages {
+        stage('Dependency Gathering') {
+            steps {
+                echo "Fetching Pip deps"
+                sh '''#!/bin/bash
+                mkdir dev_deployment
+                mkdir prod_deployment
+                pip install --index-url http://nexus2.ice.dhs.gov/repository/PythonPIP/simple --trusted-host nexus2.ice.dhs.gov -r requirements.txt -t ./dev_deployment
+                pip install --index-url http://nexus2.ice.dhs.gov/repository/PythonPIP/simple --trusted-host nexus2.ice.dhs.gov -r requirements.txt -t ./prod_deployment
+                '''
+            }
+        }
+        stage('Package Dev Lambda') {
+            steps {
+                echo "Merging function code with dependencies"
+                sh '''#!/bin/bash
+                cp ec2-last24.py dev_deployment/
+                '''
+                echo "Packaging function for lambda distribution"
+                sh '''#!/bin/bash
+                chmod -R 775 ./dev_deployment/*
+                cd dev_deployment
+                zip -r ../ec2_last24_report_dev.zip .
+                '''
+            }
+        }
+        stage('Deploy Dev Lambda') {
+            steps {
+                echo "Deploying Dev function package to lambda"
+                sh '''#!/bin/bash
+                /usr/local/bin/aws s3 cp ec2_last24_report_dev.zip s3://ec2-last-24-hours
+                '''
+            }
+        }
+        stage('Package Prod Lambda') {
+            when {
+                branch 'master'
+            }
+            steps {
+                echo "Merging function code with dependencies"
+                sh '''#!/bin/bash
+                cp ec2-last24.py dev_deployment/
+                '''
+                echo "Packaging function for lambda distribution"
+                sh '''#!/bin/bash
+                chmod -R 775 ./prod_deployment/*
+                cd prod_deployment
+                zip -r ../ec2_last24_report.zip .
+                '''
+            }
+        }
+        stage('Deploy Prod Lambda') {
+            when {
+                branch 'master'
+            }
+            steps {
+                echo "Deploying Prod function package to lambda"
+                sh '''#!/bin/bash
+                /usr/local/bin/aws s3 cp ec2_last24_report.zip s3://ec2-last-24-hours
+                '''
+            }
+        }
+    }
+}
